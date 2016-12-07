@@ -1,4 +1,6 @@
 ###use to split a field in a data frame into two
+###written By: G. Singer
+###Last update: 12/07/16
 #test data file location:     Z:\Shared\R code\Real Time
 
 
