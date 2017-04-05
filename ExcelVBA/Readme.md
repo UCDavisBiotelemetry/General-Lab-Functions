@@ -18,36 +18,36 @@ Module1
   Description: This function will allow the creation of a CSV string from a standard rectangular range of cells, placing commas between each item. Strings are not quoted.  
   Returns: a string into a single cell  
   Use example  
-    Formula: `=CSVifyArray(A1:B3,";",True)`  
-    Output: a semicolon seperated list where the list is created as the values from **[A1];[A2];[A3];[B1];[B2];[B3]**
+>    Formula: `=CSVifyArray(A1:B3,";",True)`  
+>    Output: a semicolon seperated list where the list is created as the values from **[A1];[A2];[A3];[B1];[B2];[B3]**
 
 `CSVifyArStrings(inRng As Range, Optional quotechar As String = "'", Optional sep As String = ",", Optional ColFirst As Boolean = False)`  
   Description: Quote all values in the CSV string (otherwise as above), regardless of data type.  
   Returns: a string into a single cell  
   Use example  
-    Formula: `=CSVifyArray(A1:B3,""","-",True)`  
-    Output: a dash seperated list where the list is created as the values from **"[A1]"-"[A2]"-"[A3]"-"[B1]"-"[B2]"-"[B3]"**
+>    Formula: `=CSVifyArray(A1:B3,""","-",True)`  
+>    Output: a dash seperated list where the list is created as the values from **"[A1]"-"[A2]"-"[A3]"-"[B1]"-"[B2]"-"[B3]"**
 
 `Function MakePair(inRng As Range, ParamArray strs() As Variant)`  
   Description: makes a set of values, quoted as desired, from a single row  
   Returns: a string into a single cell  
   Use example  
-    Formula: `=MakePair(A1:C1,[True,False,True])`  
-    Output: **'[A1]',[B1],'[C1]'**
+>    Formula: `=MakePair(A1:C1,[True,False,True])`  
+>    Output: **'[A1]',[B1],'[C1]'**
 
 `LastRow(pArray As Variant)`  
   Description: returns the last row number of a selected range to contain any data relative to the start of that range.  
   Returns: an integer into a single cell (or as a return value for another function)  
   Use example  
-    Formula: `=LastRow(C4:F9)`  
-    Output: an integer from 1 to 6, depending on what the last row is that contains any value, formula (or formatting?)
+>    Formula: `=LastRow(C4:F9)`  
+>    Output: an integer from 1 to 6, depending on what the last row is that contains any value, formula (or formatting?)
 
 `LastCol(pArray As Variant)`  
   Description: returns the last column number of a selected range to contain any data relative to the start of that range.  
   Returns: an integer into a single cell (or as a return value for another function)  
   Use example  
-    Formula: `=LastCol(C4:F9)`  
-    Output: an integer from 1 to 4, depending on what the last column is that contains any value, formula (or formatting?)
+>    Formula: `=LastCol(C4:F9)`  
+>    Output: an integer from 1 to 4, depending on what the last column is that contains any value, formula (or formatting?)
 
 `Sort_Active_Book()`  
   Description: sorts worksheet tabs by their name in either A-Z (ascending) or Z-A (descending) order  
