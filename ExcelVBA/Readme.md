@@ -15,7 +15,7 @@ The chain of functions and procedures (Workbook_Open -> App_WorkbookOpen -> Temp
 Module1
 ---
 
-###Excel Formulas
+### Excel Formulas
 `CSVifyArray(inRng As Range, Optional sep As String = ",", Optional ColFirst As Boolean = False)`  
   Description: This function will allow the creation of a CSV string from a standard rectangular range of cells, placing commas between each item. Strings are not quoted.  
   Returns: a string into a single cell  
