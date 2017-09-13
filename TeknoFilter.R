@@ -38,11 +38,30 @@ mode <- function(x, i){
   return(mod)
 }
 
+getmode <- function(v) {
+  uniqv <- sort(unique(v))
+  print(uniqv)
+  print(match(v,uniqv))
+  print(tabulate(match(v,uniqv)))
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+  return(uniqv)
+}
+
 
 ###magicFunction
-magicFunc <- function(dat, tagHex, counter){
-  dat5 <- dat
-  tagdet <- dat5[Hex==tagHex] ##use 2892 as an example
+magicFunc <- function(dat, tagHex, counter, filterthresh){
+  dat5 = copy(dat)
+  tagdet <- dat5[Hex==tagHex,dup:=dtf] ##use 2892 as an example
+  setkey(tagdet,dtf,dup)
+  res <- tagdet[CJ(dup,dtf),roll=TRUE,nomatch=0][dup<=winmax][,hits:=.N,by=dtf][hits>=filterthresh][,twind:=dup-dtf][1==1] #[twind>0]
+  retained <- unique(c(res[,dtf],res[,dup]))
+  #  res[,ID=.I]
+  itr <- as.data.table(merge(counter,res))
+  itr[,icalc:=round(twind/x,2)]
+  ll <- itr[icalc>=nPRI*0.651 & icalc<=nPRI*1.3]
+  setkey(ll,dtf)
+  abbrev = ll[,.(dtf,twind,icalc,x,ID)]
+  modes<-unique(abbrev[,.(dtf,icalc,ent=match(icalc,sortlist))][,.(icalc,tot=.N),keyby=.(dtf,ent)])[,icalc[sapply(.SD,which.max)],by=dtf,.SDcols="tot"][,.(dtf,ePRI=V1)]
   logTable <- data.table(hitRowNb=numeric(0), initialHitRowNb=numeric(0), isAccepted=logical(0), nbAcceptedHitsForThisInitialHit =logical(0))
   for(i in 1:nrow(tagid)){
 #    hits<- tagid[tagid$dtf>=tagid$dtf[i] & tagid$dtf<=tagid$winmax[i], ] #specific hits within window
@@ -90,7 +109,7 @@ dataFilter <- function(dat, filterthresh, counter){
   res <- dat[1==0] # copies structure
   timer <- 0
   for(i in unique(dat$Hex)){
-    ans <- magicFunc(dat, tagHex=i, counter=1:12)
+    ans <- magicFunc(dat, tagHex=i, counter=1:12, filterthresh)
     ans[!is.na(hitRowNb)]
     ans2 <- ans[nbAcceptedHitsForThisInitialHit >= filterthresh]
     keep <- c(ans2[hitRowNb[ans2[isAccepted]]], ans2[initialHitRowNb[ans2[isAccepted]]])
