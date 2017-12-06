@@ -4,23 +4,45 @@
 #                           Written by: Gabe Singer, Damien Caillaud     On: 05/16/2017                                            #
 #                                   Last Updated: 11/21/2017 by Matt Pagel                                                         #
 #                                                                                                                                  #
+#                             Special Note from http://www.twinsun.com/tz/tz-link.htm:                                             #
+#        Numeric time zone abbreviations typically count hours east of UTC, e.g., +09 for Japan and -10 for Hawaii.                #
+#                      However, the POSIX TZ environment variable uses the opposite convention.                                    #
+#              For example, one might use TZ="JST-9" and TZ="HST10" for Japan and Hawaii, respectively.                            #
 ####################################################################################################################################
-setwd("Z:/Shared/Projects/JSATS/DSP_Spring-Run Salmon/Pat Brandes Filter Data/Matt")
+#setwd("Z:/Shared/Projects/JSATS/DSP_Spring-Run Salmon/Pat Brandes Filter Data/Matt")
+setwd("P:/TempSSD")
 #setwd("C:/Users/chause/Desktop/Pats Filter Data/SJReceieverFilterData")
 TAGFILENAME = "./taglist/Brandes.csv"
+DoFilter = TRUE # if you're not saving the intermediate, you should do direct processing, but if you are, you should probably process as you go
+
 DoCleanJST = FALSE
 DoCleanSUM = TRUE
 DoCleanATS = FALSE
 DoCleanLotek = FALSE
-DoSaveIntermediate = TRUE # (DoCleanJST || DoCleanSUM || DoCleanATS || DoCleanLotek)
-DoFilterFromSavedCleanedData = TRUE || !DoSaveIntermediate # if you're not saving the intermediate, you should do direct processing
-FILTERTHRESH = 3
-counter <- 1:12
+
+DoSaveIntermediate = TRUE && (DoCleanJST || DoCleanSUM || DoCleanATS || DoCleanLotek) # if you're cleaning, you should save the output, even if you don't read that back in.  But you can always set this to false to 
+DoLaterRatherThanNow = FALSE # run Filter outside the cleaning call, rather than inside
+
+ProcessMode = 0
+If (DoSaveIntermediate) { ProcessMode = ProcessMode + 1 }
+If (DoFilter) { ProcessMode = ProcessMode + 2 }
+If (DoLaterRatherThanNow) { ProcessMode = ProcessMode + 4 }
+#### Feel free to override ProcessMode manually here ####
+
+#########################################################
+
+FILTERTHRESH = 3 # PNNL spec: 4. Arnold: 2 for ATS&Tekno, 4 for Lotek
+FLOPFACTOR = 0.006 #PNNL spec: 0.006. Arnold: .04*5 = 0.2
+MULTIPATHWINDOW = 0.2 #PNNL spec: 0.156. Arnold: 0.2
+MAXCOUNTER <- 12
+counter <- 1:MAXCOUNTER
 
 ###Install Load Function
 install.load <- function(package.name)
 {
   if (!require(package.name, character.only=T)) install.packages(package.name)
+  
+  
   library(package.name, character.only=T)
 }
 
@@ -39,7 +61,6 @@ mode <- function(x, i){
       mod <- as.numeric(names(ta)[ta == tam])
   else
     mod <- names(ta)[ta == tam]
-  #print(i) 
   return(mod)
 }
 
@@ -106,128 +127,109 @@ data.table.get <- function(file, keep.source = FALSE)
   eval(data.table.parse(file = file, keep.source = keep.source))
 dtget <- data.table.get
 
+list.files.size <- function(path = ".", full.names=TRUE, nodotdot = TRUE, ignore.case = TRUE, ...) { # path = ".", pattern = NULL, all.files = FALSE, full.names = FALSE, recursive = FALSE, ignore.case = TRUE, include.dirs = FALSE, no.. = TRUE) {
+  filelist <- data.table(filename=list.files(path=path, full.names=full.names, no.. = nodotdot, ignore.case = ignore.case, ...))
+  filelist[,size:=file.size(filename)]
+#  totalsize<-filelist[,.(sum(size)]
+  return(filelist)
+}
+
+sum.file.sizes <- function(DT) {
+  return(unlist(DT[,.(x=sum(size))],use.names=F)[1])
+}
+
+blankreturn <- function(){
+  return(data.table(hit=NA, initialHit=NA, isAccepted=FALSE, nbAcceptedHitsForThisInitialHit=0))
+}
+
 magicFunc <- function(dat, tagHex, counter, filterthresh){
-  dat2 <-copy(dat)
-  setkey(dat2,Hex)
-  tagdet <- dat2[Hex==tagHex]
+  setkey(dat,Hex)
+  tagdet <- dat[Hex==tagHex]
   setkey(tagdet,dtf)
   countermax <- max(counter)
-  tagdet[,temporary:=as.POSIXct(dtf, format = "%m/%d/%Y %H:%M:%OS", tz="Etc/GMT-8")]
+  tagdet[,temporary:=as.POSIXct(dtf, format = "%m/%d/%Y %H:%M:%OS", tz="Etc/GMT+8")]
   if (is.na(tagdet[,.(temporary)][1])) {
     tagdet[,dtf:=as.POSIXct(dtf, format = "%Y-%m-%dT%H:%M:%S.%OSZ", tz="UTC")]
   } else {
     tagdet[,dtf:=temporary]
   }
   tagdet[,temporary:=NULL]
-  tagdet[,winmax:=dtf+((nPRI*1.3*countermax)+1)]#[,dup:=dtf] ##use 2892 as an example
-  #  rm(dat5)
-  setkey(tagdet,dtf)
-  shiftz = 1:(filterthresh-1)
-  shiftzcols = paste("l",shiftz,sep="")
-  tagdet[,(shiftzcols):=shift(dtf,n=shiftz,fill=NA,type="lead")]
-#  tagdet[,(shiftzcols):=lapply(tagdet[,(shiftzcols),with=FALSE],function (x) as.POSIXct(x,format="%m/%d/%Y %H:%M:%OS", tz="Etc/GMT-8"))]
-  aclist<-as.data.table(as.POSIXct(unique(unlist(tagdet[difftime(get(shiftzcols[max(shiftz)]),winmax)<=0,c("dtf",(shiftzcols[1:(filterthresh-1)])),with=F],use.names=FALSE)),origin="1970-01-01",tz="Etc/GMT-8"))
-  if (aclist[,.N]>0) {
-    setkey(aclist,x)
-    res <- tagdet[aclist]
-    res[,(shiftzcols[2:max(shiftz)]):=NULL]
-    res[,twind:=l1-dtf]
-  #  retained <- unique(c(res[,dtf],res[,dup]))
-    #  res[,ID=.I]
-    itr <- as.data.table(merge(x=counter,res))
-    #  rm(res)
-    itr[,icalc:=round(twind/x,2)]
-    ll <- itr[icalc>=nPRI*0.651 & icalc<=nPRI*1.3]
-  #  rm(itr)
-    setkey(ll,dtf)
-    abbrev = ll[,.(dtf,twind,icalc,x,nPRI)]
-    setkey(abbrev,icalc)
-#  modes<-abbrev[,.(icalc,tot=.N),by=icalc][,.(icalc,tot=.N),keyby=.(dtf,icalc)])[,icalc[sapply(.SD,which.max)],by=dtf,.SDcols="tot"][,.(dtf,ePRI=V1)]
-    cmod<-abbrev[,dist:=abs(nPRI-icalc)][,.(tot=.N),by=.(icalc,dist)][order(-tot,dist,-icalc)][1]
-    ePRI<-cmod$icalc
-    if (is.na(ePRI)) ePRI<-5
-    flopintervals <-as.data.table(0:countermax)
-#  flopintervals <- as.data.table(counter)
-#  flopintervals[,flop:=(counter+1)*.006][,.(x=counter,flopmin=counter*ePRI-flop,flopmax=counter*ePRI+flop)]
-    flopintervals[,x:=V1][,V1:=NULL][,flop:=(x+1)*.006][,flopmin:=x*ePRI-flop][,flopmax:=x*ePRI+flop][,flop:=NULL]
-    maxflop <- flopintervals[x==12,flopmax]
-    windowz <- unique(abbrev[,.(dtf,ewinmax=dtf+maxflop)])
-    dett <-windowz[,.(dup=dtf,dd=dtf)]
-    setkey(dett,dup,dd)
-    setkey(windowz,dtf,ewinmax)
-    fomega <- foverlaps(dett,windowz,maxgap=0,type="within")[,dd:=NULL][,dif:=(dup-dtf)*1000][,dif2:=(dup-dtf)*1000]
-    flopintervals[,newmin:=flopmin*1000][,newmax:=flopmax*1000]
-    setkey(flopintervals,newmin,newmax)
-    if (fomega[,.N]>0) {
-      setkey(fomega,dif,dif2)
-    # Hope to correct for: Error in if (any(y[[yintervals[2L]]] - y[[yintervals[1L]]] < 0L)) stop("All entries in column ",  : missing value where TRUE/FALSE needed
-      tryCatch(
-        {
-          windHits<-foverlaps(fomega,flopintervals,type="within")[,.(firstHit=dtf,windowEnd=ewinmax,hit=dup,intervals=x)]},
-        warning = function(w) {
-          print("warning encountered when trying to find matching time entries")
-          print(paste(fomega[,.N],"was the size of array"))
-          windHits<-fomega[1==0][,.(firstHit=dtf,windowEnd=ewinmax,hit=dup,intervals=NA)]
-          print(ePRI)
-          print(tagHex)
-          print(w)
-        },
-        error = function(e) {
-          print("error encountered when trying to find matching time entries")
-          print(paste(fomega[,.N],"was the size of array"))
-          windHits<-fomega[1==0][,.(firstHit=dtf,windowEnd=ewinmax,hit=dup,intervals=NA)]
-          print(ePRI)
-          print(tagHex)
-          print(e)
-        },
-        finally = { }
-      )
-  #  windHits<-foverlaps(fomega,flopintervals,type="within",nomatch=0)[,.(firstHit=dtf,windowEnd=ewinmax,hit=dup,intervals=x)][,c:=.N,keyby=firstHit][c>1]  logTable <- data.table(hitRowNb=numeric(0), initialHitRowNb=numeric(0), isAccepted=logical(0), nbAcceptedHitsForThisInitialHit =logical(0))
-      NAs<-windHits[is.na(intervals)]
-      noNAs<-windHits[!is.na(intervals)][,c:=.N,keyby="firstHit"] # do I need to check for no lines before c code?
-      noOnlyFirst<-noNAs[c>1]
-      onlyFirst<-noNAs[c==1,]
-      #      noOnlyFirst<-noNAs[c>=filterthresh] #should be noOnlyTooShort
-#      onlyFirst<-noNAs[c>0&c<filterthresh,]
-      noOnlyFirst[,isAccepted:=TRUE]
-      NAs[,isAccepted:=FALSE][,c:=NA]
-      onlyFirst[,isAccepted:=FALSE][,c:=0]
-      LT<-rbind(noOnlyFirst,NAs,onlyFirst)
-      setkey(LT,firstHit,hit)
-      logTable<-LT[,.(hit=hit, initialHit=firstHit, isAccepted, nbAcceptedHitsForThisInitialHit=c)]
-    } else {
-      logTable<-data.table(hit=NA, initialHit=NA, isAccepted=FALSE, nbAcceptedHitsForThisInitialHit=0)
-    }
-  } else {
-    logTable<-data.table(hit=NA, initialHit=NA, isAccepted=FALSE, nbAcceptedHitsForThisInitialHit=0)
-  }
+  tagdet[,winmax:=dtf+((nPRI*1.3*countermax)+1)]
+  comparehit = tagdet[,.(hit=dtf, trash=dtf)]
+  setkey(tagdet,dtf,winmax)
+  setkey(comparehit,hit,trash)
+  fohits <- foverlaps(comparehit,tagdet,maxgap=0,type="within",nomatch=0) # foverlaps may bring in others retrieved a partial second beyond winmax
+  if (fohits[,.N] == 0) { return(blankreturn()) }
+  fohits[,trash:=NULL]
+  fohits[,subhits:=.N,by=dtf]
+  setkey(fohits,subhits)
+  overThresh <- fohits[subhits >= filterthresh]
+  if (overThresh[,.N] == 0) { return(blankreturn()) }
+  overThresh[,twind:=hit-dtf]
+  setkey(overThresh,dtf,twind)
+  itr <- as.data.table(merge(x=counter,overThresh))[,ePRI:=round(twind/x,2)]
+  ll <- itr[ePRI>=nPRI*0.651 & ePRI<=nPRI*1.3]
+  if (ll[,.N] == 0) { return(blankreturn()) }
+  setkey(ll,dtf)
+  abbrev = ll[,.(dtf,twind,ePRI,x,nPRI)]
+  setkey(abbrev,dtf,ePRI)
+  cmod<-abbrev[,dist:=abs(nPRI-ePRI)][,modefind:=.N,by=.(dtf,ePRI)][order(dtf,-modefind,dist,-ePRI)]
+  ePRIs<-cmod[order(dtf,-modefind,dist,-ePRI)][,head(.SD,1), by=dtf][,mePRI:=ePRI]
+  setkey(cmod,dtf)
+  setkey(ePRIs,dtf)
+  recmod<-cmod[ePRIs,ePRI=ePRIs[ePRI],keyby=dtf] # ?????
+  # this is where I left off with the code.  
+  # Was trying to find out how to update rows based on the set that they belong to. 
+  # trying to set all ePRIs to the one determined for that window
+  
+### old version code, perhaps slightly modified. 
+  # Basically what remains to be done is checking if detections match the ePRI qualification.
+  # then determine how many "legit" detections remain in a window, probably should check against filterthresh here
+  setkey(abbrev,dtf)
+  setkey(ePRIs,dtf)
+  reabbrev <- abbrev[ePRIs][,ePRI:=mePRI][,x:=x2]
+  windowz <- unique(reabbrev[,.(dtf,ewinmax=dtf+countermax*ePRI+(countermax+1)*FLOPFACTOR,x)])
+  dett <-tagdet[,.(dup=dtf,dd=dtf)] # check that this is the right starting point...
+  setkey(dett,dup,dd)
+  setkey(windowz,dtf,ewinmax)
+  fomega <- foverlaps(dett,windowz,maxgap=0,type="within",nomatch=0)[,dd:=NULL][,dif:=(dup-dtf)*1000][,dif2:=(dup-dtf)*1000]
+  if (fomega[,.N] == 0) { return(blankreturn()) }
+  flopintervals[,newmin:=flopmin*1000][,newmax:=flopmax*1000]
+  setkey(flopintervals,newmin,newmax)
+  setkey(fomega,dif,dif2)
+  windHits<-foverlaps(fomega,flopintervals,type="within",nomatch=0)[,.(firstHit=dtf,windowEnd=ewinmax,hit=dup,intervals=x)]
+  NAs<-windHits[is.na(intervals)]
+  noNAs<-windHits[!is.na(intervals)][,c:=.N,keyby="firstHit"] # do I need to check for no lines before c code?
+  noOnlyFirst<-noNAs[c>1]
+  onlyFirst<-noNAs[c==1,]
+  noOnlyFirst[,isAccepted:=TRUE]
+  NAs[,isAccepted:=FALSE][,c:=NA]
+  onlyFirst[,isAccepted:=FALSE][,c:=0]
+  LT<-rbind(noOnlyFirst,NAs,onlyFirst)
+  setkey(LT,firstHit,hit)
+  logTable<-LT[,.(hit=hit, initialHit=firstHit, isAccepted, nbAcceptedHitsForThisInitialHit=c)]
   return(logTable)
 }
 
 dataFilter <- function(dat, filterthresh, counter){
   res <- dat[1==0] # copies structure
   timer <- 0
-#  u<-unique(datos$Hex)
   setkey(dat,Hex)
   titl<-dat[!is.na(RecSN)][1][,RecSN]
   u<-as.list(unique(dat[,.N,by = Hex][N>=filterthresh])[,1])$Hex
   if (length(u)>0) timerbar<-winProgressBar(title=titl, label="Tag", min=0, max=length(u), initial=0)
-#    txtProgressBar(min = 0, max = length(u), initial = 0, char = "=", style = 3)
   for(i in u){
+    setWinProgressBar(timerbar,timer,label=i)
     ans <- magicFunc(dat, tagHex=i, counter=1:12, filterthresh)
-#    ans[!is.na(hitRowNb)]
     setkey(ans,nbAcceptedHitsForThisInitialHit,isAccepted)
     ans2 <- ans[(nbAcceptedHitsForThisInitialHit >= filterthresh)&(isAccepted)]
     if (ans2[,.N]>0) {
-#    keep <- c(ans2[hitRowNb[ans2[isAccepted]]], ans2[initialHitRowNb[ans2[isAccepted]]])
-#    setkey(ans2,hit)
       keep<-as.data.table(unique(ans2[,hit]))
       setkey(dat,dtf)
       setkey(keep,x)
       res <- rbind(res, dat[keep])
     }
     timer <- timer+1
-    setWinProgressBar(timerbar,timer,label=i)
 #    print(timer/length(u))
   }
   if (length(u)>0) close(timerbar)
@@ -243,7 +245,7 @@ cleanJST <- function(i, tags) {
   dat$nPRI<- 5   # set nPRI (Nominal PRI) for the tag 
   #combine the DT and FracSec columns into a single time column and convert to POSIXct
   dat$dtf<- paste0(dat$DT, substring(dat$FracSec,2)) #paste the fractional seconds to the end of the DT in a new column
-  dat$dtf<- as.POSIXct(dat$dtf, format = "%m/%d/%Y %H:%M:%OS", tz="Etc/GMT-8") #convert to POSIXct beware this may change value of 0.0000X
+  dat$dtf<- as.POSIXct(dat$dtf, format = "%m/%d/%Y %H:%M:%OS", tz="Etc/GMT+8") #convert to POSIXct beware this may change value of 0.0000X
   #head(strftime(dat2$dtf, format = "%m/%d/%Y %H:%M:%OS5")) #verify that although the fractional seconds don't print, they are indeed there
   dat2<- as.tbl(dat)
   dat2$Hex <- as.character(dat2$Hex)
@@ -253,10 +255,10 @@ cleanJST <- function(i, tags) {
   dat4 <- data.frame(dat3, crazy=c(NA,dat3$Hex[-nrow(dat3)]==dat3$Hex[-1]))
   dat4$tdiff[dat4$crazy==0] <- NA
   dat5 <- dat4[,-14]
-  dat5 <- dat5[dat5$tdiff>0.2 | is.na(dat5$tdiff),]
+  dat5 <- dat5[dat5$tdiff>MULTIPATHWINDOW | is.na(dat5$tdiff),]
 #  dput(dat5, file = paste0("./cleaned/", dat5$RecSN[1], "_cleaned.dput"))
-  if (DoSaveIntermediate) fwrite(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.fwri"))
-  if (!DoFilterFromSavedCleanedData) {
+  if (ProcessMode %% 2) fwrite(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.fwri"))
+  if ((ProcessMode > 1) && (ProcessMode < 4)) {
     dat5<-as.data.table(dat5)
     filterData(dat5)
   }
@@ -274,21 +276,26 @@ cleanSUM <- function() { #set up enclosure
                    "Freq", "Thresh", "nbw", "snr", "Valid")
     #drop the barker code and the CRC from tagid field & convert to POSIXct note: fractional seconds will no longer print, but they are there
     dat[, Hex := substr(Hex, 4, 7)]
-    dat[, dtf := as.POSIXct(dtf, format = "%m/%d/%Y %H:%M:%OS", tz="Etc/GMT-8")]
+    dat[, dtf := as.POSIXct(dtf, format = "%m/%d/%Y %H:%M:%OS", tz="Etc/GMT+8")]
     dat[, nPRI := 5]
+    sn<-unlist(dat[!is.na(RecSN),.(x=RecSN)],use.names=F)
+    if (length(sn)>0) {sn<-sn[1]}
+    else {
+      fg<-strsplit(i,'/',perl=TRUE)
+      sn<-fg[length(fg)]
+    }
     #tbl w/ bad detect lines removed, filtered by known taglist
     dat <- dat[trimws(Detection) != "-" & Hex %in% as.character(unlist(tags[2]))]
     setkey(dat, Hex, dtf)
     noMP <- dat[, tdiff := as.numeric(difftime(dtf,shift(dtf, n=1, fill=NA)),units="secs"), by=Hex]
-#    noMP[, winmax:=dtf+5*1.3*max_counter+1]
-    #  while (noMP[tdiff<0.2, .N][1]) { # keep looping until multipath gone
-    noMP <- noMP[tdiff > 0.2 | is.na(tdiff)][, tdiff := as.numeric(difftime(dtf,shift(dtf, n=1, fill=NA)),units="secs"), by=Hex]
-    #  }
+    noMP <- noMP[tdiff > MULTIPATHWINDOW | is.na(tdiff)][, tdiff := as.numeric(difftime(dtf,shift(dtf, n=1, fill=NA)),units="secs"), by=Hex]
     dat5 <- noMP
     itercount<<- itercount+1 #cleanSUM's itercount
-    # dput(dat5, file = paste0("./cleaned/", dat5[,RecSN][1],"(",itercount,")", "_cleaned.dput"))
-    if (DoSaveIntermediate) dput(dat5, file = paste0("./cleaned/", dat5[,RecSN][1],"(",itercount,")", "_cleaned.dput")) #fwrite(dat5, file = paste0("./cleaned/", dat5[,RecSN][1],"(",itercount,")", "_cleaned.fwri"))
-    if (!DoFilterFromSavedCleanedData) {
+    if (ProcessMode %% 2) { 
+      dput(dat5, file = paste0("./cleaned/", sn,"(",itercount,")", "_cleaned.dput")) 
+      #fwrite(dat5, file = paste0("./cleaned/", dat5[,RecSN][1],"(",itercount,")", "_cleaned.fwri"))
+    }
+    if ((ProcessMode > 1) && (ProcessMode < 4)) {
       # already data.table
       filterData(dat5)
     }
@@ -329,7 +336,7 @@ cleanATS <- function() {
     dat$nPRI<- 5                                               #set nPRI (Nominal PRI) for the tag (this will have 
     #to be set to something different for tags with a PRI other than 5)
     dat$dtf<- as.POSIXct(dat$dtf, format = "%m/%d/%Y %H:%M:%OS", 
-                         tz="Etc/GMT-8")                       #convert to POSIXct note: fractional seconds will no longer print, but 
+                         tz="Etc/GMT+8")                       #convert to POSIXct note: fractional seconds will no longer print, but 
     #they are there. Run the next line to verify that you haven't lost your 
     #frac seconds
     #(strftime(dat$dtf, format = "%m/%d/%Y %H:%M:%OS6"))
@@ -342,8 +349,8 @@ cleanATS <- function() {
     dat5 <- dat5[dat5$tdiff>0.2 | is.na(dat5$tdiff),]
     itercount <<- itercount+1
 #    dput(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.dput"))
-    if (DoSaveIntermediate) fwrite(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.fwri"))
-    if (!DoFilterFromSavedCleanedData) {
+    if (ProcessMode %% 2) fwrite(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.fwri"))
+    if ((ProcessMode > 1) && (ProcessMode < 4)) {
       dat5<-as.data.table(dat5)
       filterData(dat5)
     }
@@ -386,8 +393,8 @@ cleanLotek <-function() {
     itercount <<- itercount+1
 #    dput(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.dput"))
 #    fwrite(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.fwri"))
-    if (DoSaveIntermediate) fwrite(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.fwri"))
-    if (!DoFilterFromSavedCleanedData) {
+    if (ProcessMode %% 2) fwrite(dat5, file = paste0("./cleaned/", dat5$RecSN[1],"(", itercount, ")",  "_cleaned.fwri"))
+    if ((ProcessMode > 1) && (ProcessMode < 4)) {
       dat5<-as.data.table(dat5)
       filterData(dat5)
     }
@@ -442,26 +449,48 @@ if (DoCleanJST) for(i in list.files("./jst")) {
 
 if (DoCleanSUM) {
   fn<-cleanSUM()
-  for(i in list.files("./raw/",pattern="*.SUM", full.names=TRUE)){
+  lf<-list.files("./raw/",pattern="*.SUM", full.names=TRUE, include.dirs = FALSE)
+  fc<-length(lf)
+  tf<-sum.file.sizes(lf)
+  pb<-winProgressBar(title="Cleaning SUM files", label="file", min=0, max=tf, initial=0)
+  j<-0
+  for(i in lf){
     if (as.integer(file.info(i)["isdir"])) next
+    setWinProgressBar(pb,j,label=i)
     fn(i, tags, max(counter))
+    j<-j+1
   }
+  close(pb)
 }
 
 if (DoCleanATS) {
   fn<-cleanATS()
-  for(i in list.files("./raw/",pattern="*.XLS*", full.names=TRUE)){
+  lf<-list.files("./raw/",pattern="*.XLS", full.names=TRUE, include.dirs = FALSE)
+  tf<-length(lf)
+  pb<-winProgressBar(title="Cleaning ATS XLS files", label="file", min=0, max=tf, initial=0)
+  j<-0
+  for(i in lf){
     if (as.integer(file.info(i)["isdir"])) next
+    setWinProgressBar(pb,j,label=i)
     fn(i, tags, max(counter)) 
+    j<-j+1
   }
+  close(pb)
 }
 
 if (DoCleanLotek) {
   fn<-cleanLotek()
-  for(i in list.files("./raw/",pattern="*.TXT", full.names=TRUE)){
+  lf<-list.files("./raw/",pattern="*.TXT", full.names=TRUE, include.dirs = FALSE)
+  tf<-length(lf)
+  pb<-winProgressBar(title="Cleaning LoTek TXT files", label="file", min=0, max=tf, initial=0)
+  j<-0
+  for(i in lf){
     if (as.integer(file.info(i)["isdir"])) next
+    setWinProgressBar(pb,j,label=i)
     fn(i, tags, max(counter))
+    j<-j+1
   }
+  close(pb)
 }
 
 #loop ran, now feed files back into R and see if they look right
@@ -471,7 +500,7 @@ if (DoCleanLotek) {
 
 ###Filtering Loop
 rm(tags)
-if (DoFilterFromSavedCleanedData) {
+if (ProcessMode >= 6) {
   filterData()
 }
 
