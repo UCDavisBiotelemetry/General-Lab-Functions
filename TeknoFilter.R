@@ -133,7 +133,7 @@ magicFunc <- function(dat, tagHex, countermax, filterthresh){
   setkey(tagdet,dtf)
   # countermax <- max(counter)
   tagdet[,temporary:=as.POSIXct(dtf, format = "%m/%d/%Y %H:%M:%OS", tz="Etc/GMT+8")] # dput file stores datestamp in this basic format
-  if (is.na(tagdet[,.(temporary)][1])) tagdet[,dtf:=as.POSIXct(dtf, format = "%Y-%m-%dT%H:%M:%OS6Z", tz="UTC")] # fwri file stores as UTC in this format ...was in this doc as %S.%OSZ
+  if (is.na(tagdet[,.(temporary)][1])) tagdet[,dtf:=as.POSIXct(dtf, format = "%Y-%m-%dT%H:%M:%S.%OSZ", tz="UTC")] # fwri file stores as UTC in this format ...was in this doc as %S.%OSZ
   else tagdet[,dtf:=temporary]
   tagdet[,temporary:=NULL]
   tagdet[,winmax:=dtf+((nPRI*1.3*countermax)+1)]
@@ -286,12 +286,12 @@ cleanRT_prepreprocess <- function(...) {
 #   1. read a bit from each column first
 #   2. set the data type accordingly and 
 #   3. re-set to character if it's picky
-    # dathead <- read.csv(i, header=T, nrows=10)
-    # classes<-sapply(dathead, class)
-    # classes[names(unlist(list(classes[which(classes %in% c("factor","numeric"))],classes[names(classes) %in% c("time","date","dtf")])))] <- "character"
-    # dat <- read.csv(i, header=T, colClasses=classes)
-    # names(dat) # SQSQueue,SQSMessageID,ReceiverID,DLOrder,DetectionDate,TagID,TxAmplitude,TxOffset,TxNBW
-    # names(dat) <- c("SQSQueue","SQSMessageID","RecSN","DLOrder","dtf","Hex","TxAmplitude","TxOffset","TxNBW")
+# dathead <- read.csv(i, header=T, nrows=10)
+# classes<-sapply(dathead, class)
+# classes[names(unlist(list(classes[which(classes %in% c("factor","numeric"))],classes[names(classes) %in% c("time","date","dtf")])))] <- "character"
+# dat <- read.csv(i, header=T, colClasses=classes)
+# names(dat) # SQSQueue,SQSMessageID,ReceiverID,DLOrder,DetectionDate,TagID,TxAmplitude,TxOffset,TxNBW
+# names(dat) <- c("SQSQueue","SQSMessageID","RecSN","DLOrder","dtf","Hex","TxAmplitude","TxOffset","TxNBW")
 
 cleanRT <- function(...) { # timestamps in stream are UTC, not PST
   itercount <- 0
@@ -478,7 +478,7 @@ filterData <- function(incomingData=NULL) {
       if (endsWith(i,'.dput') || endsWith(i,'.txt')) datos <-as.data.table(dtget(i))
       if (endsWith(i,'.fwri')) { # if it was written to disk with fwrite, use the faster fread, but make sure to set the datetime stamps
         datos <-as.data.table(fread(i))
-        datos[,dtf:=as.POSIXct(dtf, format = "%Y-%m-%dT%H:%M:%OS6Z", tz="UTC")] # was %S.%OSZ at the end
+        datos[,dtf:=as.POSIXct(dtf, format = "%Y-%m-%dT%H:%M:%S.%OSZ", tz="UTC")] # %OS6Z doesn't seem to work correctly
       }
       proces(dat=datos)
     }
@@ -519,7 +519,7 @@ readTags <- function(vTagFileNames=vTAGFILENAME, priColName=c('PRI_nominal','nPR
   }
   return(as.data.table(ret))
 }
-                     
+
 cleanWrapper <- function(functionCall, tags, precleanDir, filePattern, wpbTitle=NULL) {
   lfs<-list.files.size(precleanDir, pattern=filePattern, full.names=TRUE, include.dirs=FALSE)
   # lf<-list.files(precleanDir, pattern=filePattern, full.names=TRUE, include.dirs = FALSE)
